@@ -1,0 +1,217 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  rex [--target TARGET] [--port PORT] [--persist DURATION] [--ssh-option OPT] [--check] [--tmux] [--tmux-session SESSION] [COMMAND...]
+  rex [options] < script.sh
+
+Runs a command on the remote host through an OpenSSH ControlMaster connection.
+If COMMAND is omitted, the command is read from stdin.
+
+Config:
+  Reads the nearest .env file from the current directory or ancestors.
+
+Options:
+  --target TARGET      SSH target, such as user@host or an SSH config alias
+  --port PORT          SSH port
+  --persist DURATION   OpenSSH ControlPersist duration, default: 10m
+  --ssh-option OPT     Extra ssh -o option. May be repeated.
+  --check              Print remote hostname, user, and working directory
+  --tmux              Run inside the configured remote tmux session
+  --tmux-session NAME Override REMOTE_EXEC_TMUX_SESSION
+  -h, --help           Show this help
+
+Environment:
+  REMOTE_EXEC_TARGET   Default SSH target
+  REMOTE_EXEC_PORT     Default SSH port
+  REMOTE_EXEC_PERSIST  Default ControlPersist duration
+  REMOTE_EXEC_DIR      Directory for SSH control sockets
+  REMOTE_EXEC_TMUX_SESSION
+                      Default tmux session for --tmux
+
+Examples:
+  REMOTE_EXEC_TARGET=user@example.com rex hostname
+  rex --target prod git -C /srv/app status --short
+  rex --target prod --tmux pwd
+  rex --target prod <<'SCRIPT'
+  cd /srv/app
+  git status --short
+  SCRIPT
+EOF
+}
+
+find_config() {
+  local dir="$PWD"
+  while true; do
+    if [[ -f "${dir}/.env" ]]; then
+      printf '%s\n' "${dir}/.env"
+      return 0
+    fi
+    [[ "${dir}" == "/" ]] && return 1
+    dir="$(dirname "${dir}")"
+  done
+}
+
+config_file="$(find_config || true)"
+if [[ -n "${config_file}" ]]; then
+  while IFS='=' read -r key value; do
+    [[ "${key}" =~ ^REMOTE_EXEC_[A-Z0-9_]+$ ]] || continue
+    value="${value%%#*}"
+    value="${value%"${value##*[![:space:]]}"}"
+    value="${value#\"}"
+    value="${value%\"}"
+    export "${key}=${value}"
+  done < "${config_file}"
+fi
+
+target="${REMOTE_EXEC_TARGET:-}"
+port="${REMOTE_EXEC_PORT:-}"
+persist="${REMOTE_EXEC_PERSIST:-10m}"
+socket_dir="${REMOTE_EXEC_DIR:-${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/remote-exec-ssh}"
+check=0
+tmux_session=""
+use_tmux=0
+extra_opts=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --target)
+      [[ $# -ge 2 ]] || { echo "Error: --target requires a value" >&2; exit 2; }
+      target="$2"
+      shift 2
+      ;;
+    --port)
+      [[ $# -ge 2 ]] || { echo "Error: --port requires a value" >&2; exit 2; }
+      port="$2"
+      shift 2
+      ;;
+    --persist)
+      [[ $# -ge 2 ]] || { echo "Error: --persist requires a value" >&2; exit 2; }
+      persist="$2"
+      shift 2
+      ;;
+    --ssh-option)
+      [[ $# -ge 2 ]] || { echo "Error: --ssh-option requires a value" >&2; exit 2; }
+      extra_opts+=("-o" "$2")
+      shift 2
+      ;;
+    --check)
+      check=1
+      shift
+      ;;
+    --tmux)
+      use_tmux=1
+      shift
+      ;;
+    --tmux-session)
+      [[ $# -ge 2 ]] || { echo "Error: --tmux-session requires a session name" >&2; exit 2; }
+      tmux_session="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      echo "Error: unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+if [[ -z "${target}" ]]; then
+  echo "Error: SSH target is required. Set REMOTE_EXEC_TARGET or pass --target." >&2
+  exit 2
+fi
+
+mkdir -p "${socket_dir}"
+chmod 700 "${socket_dir}" 2>/dev/null || true
+
+ssh_base=(
+  ssh
+  -o "ControlMaster=auto"
+  -o "ControlPersist=${persist}"
+  -o "ControlPath=${socket_dir}/%C"
+  -o "BatchMode=yes"
+)
+
+if [[ -n "${port}" ]]; then
+  ssh_base+=(-p "${port}")
+fi
+
+ssh_base+=("${extra_opts[@]}")
+
+shell_quote() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+run_tmux() {
+  local session="$1"
+  local command_text="$2"
+  local marker="__REMOTE_EXEC_DONE_${RANDOM}_${RANDOM}_$$"
+  local payload remote_driver
+
+  payload="$(printf '%s\nprintf "\\n%s:$?\\n"\n' "${command_text}" "${marker}")"
+  remote_driver="$(cat <<EOF
+set -euo pipefail
+session=$(shell_quote "${session}")
+marker=$(shell_quote "${marker}")
+payload=$(shell_quote "${payload}")
+
+command -v tmux >/dev/null 2>&1 || { echo "Error: tmux is not installed on remote host" >&2; exit 127; }
+tmux has-session -t "\${session}" 2>/dev/null || tmux new-session -d -s "\${session}"
+tmux send-keys -t "\${session}" C-c
+tmux send-keys -t "\${session}" C-l
+sleep 0.1
+tmux clear-history -t "\${session}" 2>/dev/null || true
+tmux send-keys -l -t "\${session}" "\${payload}"
+tmux send-keys -t "\${session}" C-m
+
+for _ in \$(seq 1 600); do
+  pane="\$(tmux capture-pane -p -t "\${session}" -S -2000)"
+  case "\${pane}" in
+    *"\${marker}:"*) break ;;
+  esac
+  sleep 0.2
+done
+
+pane="\$(tmux capture-pane -p -t "\${session}" -S -2000)"
+printf '%s\n' "\${pane}" | sed "/\${marker}:[0-9][0-9]*\$/d"
+status="\$(printf '%s\n' "\${pane}" | sed -n "s/.*\${marker}:\\([0-9][0-9]*\\)\$/\\1/p" | tail -n 1)"
+[[ -n "\${status}" ]] || { echo "Error: tmux command did not finish before timeout" >&2; exit 124; }
+exit "\${status}"
+EOF
+)"
+  "${ssh_base[@]}" -- "${target}" 'bash -se' <<<"${remote_driver}"
+}
+
+if [[ "${check}" -eq 1 ]]; then
+  [[ $# -eq 0 ]] || { echo "Error: --check does not accept a command" >&2; exit 2; }
+  "${ssh_base[@]}" -- "${target}" 'printf "target=%s\nhost=%s\nuser=%s\npwd=%s\n" "$SSH_CONNECTION" "$(hostname)" "$(whoami)" "$PWD"'
+elif [[ "${use_tmux}" -eq 1 ]]; then
+  tmux_session="${tmux_session:-${REMOTE_EXEC_TMUX_SESSION:-}}"
+  [[ -n "${tmux_session}" ]] || { echo "Error: --tmux requires REMOTE_EXEC_TMUX_SESSION or --tmux-session" >&2; exit 2; }
+  if [[ $# -gt 0 ]]; then
+    run_tmux "${tmux_session}" "$*"
+  else
+    remote_script="$(cat)"
+    [[ -n "${remote_script}" ]] || { echo "Error: command is required on argv or stdin" >&2; exit 2; }
+    run_tmux "${tmux_session}" "${remote_script}"
+  fi
+elif [[ $# -gt 0 ]]; then
+  "${ssh_base[@]}" -- "${target}" "$@"
+else
+  remote_script="$(cat)"
+  [[ -n "${remote_script}" ]] || { echo "Error: command is required on argv or stdin" >&2; exit 2; }
+  "${ssh_base[@]}" -- "${target}" 'bash -se' <<<"${remote_script}"
+fi
