@@ -42,46 +42,53 @@ Common locations:
 
 - Local OpenSSH client: `ssh`
 - SSH access to the target host
-- `REMOTE_EXEC_TARGET` in the environment or nearest `.env`, unless `--target` is passed
+- `REMOTE_EXEC_TARGET` in the environment, unless `--target` is passed
 - Remote `tmux` only when using `--tmux`
 
-The helper script reads the nearest `.env` file from the current directory or its ancestors. It only imports keys beginning with `REMOTE_EXEC_`.
+The helper script reads configuration from the current environment only. For repeated use, create a project-local `.rex.env`, source it in your shell, and let your agent check or update it when remote-exec is needed.
 
 ## Configuration
 
 ```sh
-REMOTE_EXEC_TARGET=user@example.com
-REMOTE_EXEC_PORT=22
-REMOTE_EXEC_PERSIST=10m
-REMOTE_EXEC_TMUX_SESSION=remote-exec
+export PATH="/path/to/skills/remote-exec/scripts:$PATH"
+export REMOTE_EXEC_TARGET=user@host
+export REMOTE_EXEC_PORT=22
+export REMOTE_EXEC_PERSIST=10m
+export REMOTE_EXEC_TMUX_SESSION=remote-exec
 ```
 
 `REMOTE_EXEC_PORT`, `REMOTE_EXEC_PERSIST`, and `REMOTE_EXEC_TMUX_SESSION` are optional. Use `REMOTE_EXEC_TMUX_SESSION` only when tmux mode is needed.
+
+Activate the configuration before running commands:
+
+```sh
+source .rex.env
+```
 
 ## Usage
 
 Run a connection check:
 
 ```sh
-skills/remote-exec/scripts/rex --check
+rex --check
 ```
 
 Run a command:
 
 ```sh
-skills/remote-exec/scripts/rex hostname
+rex hostname
 ```
 
 Override the target:
 
 ```sh
-skills/remote-exec/scripts/rex --target user@example.com uname -a
+rex --target user@host uname -a
 ```
 
 Pass multi-line commands on stdin to avoid local quoting issues:
 
 ```sh
-skills/remote-exec/scripts/rex <<'EOF'
+rex <<'EOF'
 cd /path/to/project
 git status --short
 EOF
@@ -90,8 +97,8 @@ EOF
 Use tmux mode when shell state must persist across calls:
 
 ```sh
-skills/remote-exec/scripts/rex --tmux-session work --tmux 'cd /srv/app'
-skills/remote-exec/scripts/rex --tmux-session work --tmux pwd
+rex --tmux-session work --tmux 'cd /srv/app'
+rex --tmux-session work --tmux pwd
 ```
 
 ## Validation

@@ -24,25 +24,43 @@ Use for repeated remote shell commands over SSH. Prefer normal `rex` (`<path-to-
 
 ## Workflow
 
-1. Identify the SSH target from the user request, `.env`, or `REMOTE_EXEC_TARGET`. If missing, ask.
-2. Check the connection:
+1. Use `.rex.env` in the current workspace as the activation file. If it is missing, create it with exports for the `rex` script path and known `REMOTE_EXEC_*` values:
+
+   ```bash
+   export PATH="<path-to-skills>/remote-exec/scripts:${PATH}"
+   export REMOTE_EXEC_TARGET="user@host"
+   export REMOTE_EXEC_PORT="22"
+   export REMOTE_EXEC_PERSIST="10m"
+   ```
+
+2. Identify the SSH target from the user request, an already sourced `.rex.env`, or `REMOTE_EXEC_TARGET`. If missing, ask.
+3. Activate the configuration before using `rex`:
+
+   ```bash
+   source .rex.env
+   ```
+
+   Tell the user they can also source this file in their shell to avoid typing the script path and target repeatedly.
+4. Check the connection:
 
    ```bash
    rex --check
    ```
 
-3. If auth fails, check/create a key, then ask the user to run `ssh-copy-id "$REMOTE_EXEC_TARGET"` manually:
+5. If auth fails, check/create a key, then ask the user to run `ssh-copy-id "$REMOTE_EXEC_TARGET"` manually:
 
    Do not overwrite an existing private key. If `ssh-copy-id` is unavailable, show the public key and tell the user to add it to remote `~/.ssh/authorized_keys`.
 
-4. Run normal commands through `rex`. Use tmux mode only when persistent shell state is needed.
+6. Run normal commands through `rex`. Use tmux mode only when persistent shell state is needed.
 
 ## Usage
 
 ```bash
-REMOTE_EXEC_TARGET="user@host"
-REMOTE_EXEC_TMUX_SESSION="remote-exec"  # when use tmux only
+export REMOTE_EXEC_TARGET="user@host"
+export REMOTE_EXEC_TMUX_SESSION="remote-exec"  # when use tmux only
 ```
+
+Prefer storing these exports in `.rex.env` and sourcing it before running `rex`.
 
 Pass shell scripts on stdin to avoid local quoting issues.
 
@@ -53,7 +71,7 @@ git status --short
 EOF
 ```
 
-Use `--target user@host` to override `.env` or `REMOTE_EXEC_TARGET`.
+Use `--target user@host` to override `REMOTE_EXEC_TARGET`.
 
 ## Tmux mode
 
@@ -70,6 +88,6 @@ rex --tmux-session work --tmux pwd
 
 - Do not ask for or store remote passwords.
 - Do not overwrite existing private keys.
-- Do not modify unrelated `.env` keys.
+- Use `.rex.env` for `rex` activation and configuration; do not read or modify `.env`.
 - Use stdin scripts for multi-line commands to avoid local quoting bugs.
 - Treat tmux as remote state: use it only when the user needs persistent `cd`, exports, activated environments, or long-running interactive context.

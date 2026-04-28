@@ -11,7 +11,8 @@ Runs a command on the remote host through an OpenSSH ControlMaster connection.
 If COMMAND is omitted, the command is read from stdin.
 
 Config:
-  Reads the nearest .env file from the current directory or ancestors.
+  Reads REMOTE_EXEC_* variables from the current environment.
+  For repeated use, create and source a project-local .rex.env.
 
 Options:
   --target TARGET      SSH target, such as user@host or an SSH config alias
@@ -32,6 +33,7 @@ Environment:
                       Default tmux session for --tmux
 
 Examples:
+  source .rex.env
   REMOTE_EXEC_TARGET=user@example.com rex hostname
   rex --target prod git -C /srv/app status --short
   rex --target prod --tmux pwd
@@ -41,30 +43,6 @@ Examples:
   SCRIPT
 EOF
 }
-
-find_config() {
-  local dir="$PWD"
-  while true; do
-    if [[ -f "${dir}/.env" ]]; then
-      printf '%s\n' "${dir}/.env"
-      return 0
-    fi
-    [[ "${dir}" == "/" ]] && return 1
-    dir="$(dirname "${dir}")"
-  done
-}
-
-config_file="$(find_config || true)"
-if [[ -n "${config_file}" ]]; then
-  while IFS='=' read -r key value; do
-    [[ "${key}" =~ ^REMOTE_EXEC_[A-Z0-9_]+$ ]] || continue
-    value="${value%%#*}"
-    value="${value%"${value##*[![:space:]]}"}"
-    value="${value#\"}"
-    value="${value%\"}"
-    export "${key}=${value}"
-  done < "${config_file}"
-fi
 
 target="${REMOTE_EXEC_TARGET:-}"
 port="${REMOTE_EXEC_PORT:-}"
@@ -143,6 +121,8 @@ ssh_base=(
   -o "ControlPersist=${persist}"
   -o "ControlPath=${socket_dir}/%C"
   -o "BatchMode=yes"
+  -o "GSSAPIAuthentication=no"
+  -o "PreferredAuthentications=publickey"
 )
 
 if [[ -n "${port}" ]]; then
