@@ -1,42 +1,42 @@
-# remote-exec
+<h1 align="center">remote-exec</h1>
 
-Agent Skill for running repeated shell commands on a remote machine over SSH with OpenSSH connection reuse.
+<p align="center">
+  <strong>Run repeated shell commands on a remote machine over SSH with OpenSSH connection reuse.</strong><br/>
+  Execute shell commands remotely with stdin scripts and optional tmux-backed persistent state. No passwords, just keys.
+</p>
 
-This repository stores skills under `skills/`. Each skill follows the [Agent Skills specification](https://agentskills.io/specification) and can be used by skills-compatible agents.
+<p align="center">
+  <a href="https://github.com/vlln/remote-exec-skill/stargazers"><img src="https://badgen.net/github/stars/vlln/remote-exec-skill?label=%E2%98%85" alt="GitHub stars" /></a>
+  <img src="https://badgen.net/badge/license/MIT/blue" alt="MIT" />
+  <img src="https://badgen.net/badge/spec/Agent%20Skills/8257D0" alt="Agent Skills spec" />
+</p>
+
+---
+
+## Installation
+
+### [skit](https://github.com/vlln/skit) (Recommended)
+
+```bash
+skit install https://github.com/vlln/remote-exec-skill/tree/main/skills/remote-exec
+```
+
+### Manually
+
+| Agent | Command |
+|-------|---------|
+| **Claude Code** | `cp -r skills/remote-exec .claude/skills/` |
+| **Codex** | `cp -r skills/remote-exec ~/.codex/skills/` |
+| **OpenCode** | `git clone https://github.com/vlln/remote-exec-skill.git ~/.opencode/skills/remote-exec-skill` |
+| **Kimi** | `cp -r skills/remote-exec ~/.kimi/skills/` |
+
+---
 
 ## Skills
 
 | Skill | Description |
 |-------|-------------|
-| [`remote-exec`](skills/remote-exec) | Run repeated remote shell commands over SSH, with stdin scripts and optional tmux-backed persistent state. |
-
-## Installation
-
-Recommended: use `skit` for reproducible installs, lock files, and requirement diagnostics.
-
-### skit
-
-Install this skill:
-
-```sh
-skit install ./skills/remote-exec
-```
-
-Install all discoverable skills from this repository:
-
-```sh
-skit install . --all
-```
-
-### Manual
-
-Copy `skills/remote-exec` into your agent's skills directory, then restart the agent if required.
-
-Common locations:
-
-- Codex CLI: `~/.codex/skills/remote-exec`
-- Claude Code: `.claude/skills/remote-exec` in the project, or the configured user skills directory
-- OpenCode: `~/.opencode/skills/remote-exec`
+| [remote-exec](skills/remote-exec/SKILL.md) | Run repeated remote shell commands over SSH, with stdin scripts and optional tmux-backed persistent state. |
 
 ## Requirements
 
@@ -46,6 +46,8 @@ Common locations:
 - Remote `tmux` only when using `--tmux`
 
 The helper script reads configuration from the current environment only. For repeated use, create a project-local `.rex.env`, source it in your shell, and let your agent check or update it when remote-exec is needed.
+
+---
 
 ## Configuration
 
