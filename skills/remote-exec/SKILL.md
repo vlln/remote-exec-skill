@@ -18,13 +18,17 @@ metadata:
 
 ssh, remote, remote-exec, rex, remote command, execute on remote, run on server, remote shell
 
-## When To Use
+## Capabilities
 
-Use for repeated remote shell commands over SSH. Prefer direct `rex` commands for independent commands; use tmux mode only when command state must persist between calls.
+- Run commands on a remote host via `rex` (SSH with ControlMaster connection multiplexing).
+- Check connectivity: `rex --check` prints remote hostname, user, and working directory.
+- Pass multi-line scripts on stdin.
+- `--tmux` preserves shell state (cd, exports, venv activation) across calls.
+- Connection persistence via `ControlPersist` (default 10m, configurable via `REMOTE_EXEC_PERSIST`).
 
 ## Workflow
 
-1. Use `.rex.env` in the current workspace as the activation file. If it is missing, create it with the `rex` command on `PATH` and known `REMOTE_EXEC_*` values:
+1. Activate `.rex.env` in the current workspace. If missing, create it:
 
    ```bash
    export REMOTE_EXEC_TARGET="user@host"
@@ -32,66 +36,34 @@ Use for repeated remote shell commands over SSH. Prefer direct `rex` commands fo
    export REMOTE_EXEC_PERSIST="10m"
    ```
 
-   Ensure `rex` is available on `PATH` before sourcing.
-
-2. Identify the SSH target from the user request, an already sourced `.rex.env`, or `REMOTE_EXEC_TARGET`. If missing, ask.
-3. Activate the configuration before using `rex`:
+   Source it before every `rex` call:
 
    ```bash
    source .rex.env
    ```
 
-   Tell the user they can also source this file in their shell to avoid typing the target repeatedly.
-
-4. Check the connection:
+2. Verify the connection:
 
    ```bash
    rex --check
    ```
 
-5. If auth fails, check/create a key, then ask the user to run `ssh-copy-id "$REMOTE_EXEC_TARGET"` manually.
+3. Run commands. Prefer direct `rex` for independent commands; use `--tmux` only when shell state must persist between calls.
 
-   Do not overwrite an existing private key. If `ssh-copy-id` is unavailable, show the public key and tell the user to add it to remote `~/.ssh/authorized_keys`.
+### Tmux Mode
 
-6. Run normal commands through `rex`. Use tmux mode only when persistent shell state is needed.
-
-## Usage
-
-Set the target and optional tmux session:
-
-```bash
-export REMOTE_EXEC_TARGET="user@host"
-export REMOTE_EXEC_TMUX_SESSION="remote-exec"  # only when using tmux
-```
-
-Prefer storing these exports in `.rex.env` and sourcing it before running `rex`.
-
-Pass shell scripts on stdin to avoid local quoting issues:
-
-```bash
-rex <<'EOF'
-cd /path/to/project
-git status --short
-EOF
-```
-
-Use `--target user@host` to override `REMOTE_EXEC_TARGET`.
-
-## Tmux Mode
-
-Use `--tmux` for tasks that need persistent shell state such as `cd`, exported variables, activated environments, or long-lived interactive context. The default session comes from `REMOTE_EXEC_TMUX_SESSION`; override it with `--tmux-session NAME`.
+Use `--tmux` for tasks needing persistent shell state. Session comes from `REMOTE_EXEC_TMUX_SESSION`; override with `--tmux-session NAME`.
 
 ```bash
 rex --tmux 'cd /path/to/project'
 rex --tmux pwd
 rex --tmux git status --short
-rex --tmux-session work --tmux pwd
 ```
 
 ## Gotchas
 
-- Do not ask for or store remote passwords.
-- Do not overwrite existing private keys.
-- Use `.rex.env` for `rex` activation and configuration; do not read or modify `.env`.
-- Use stdin scripts for multi-line commands to avoid local quoting bugs.
-- Treat tmux as remote state: use it only when the user needs persistent `cd`, exports, activated environments, or long-running interactive context.
+- `.rex.env` is the activation file for `rex`. Do not use or modify `.env`.
+- `--tmux` creates a persistent tmux session on the remote host. Commands accumulate state — `cd` and environment changes persist between calls.
+- `--tmux` requires `tmux` installed on the remote host.
+- `BatchMode=yes` is forced internally — only SSH keys work, password auth is not supported.
+- `ControlPersist` keeps the master SSH connection alive. If the target or port changes, the old socket may cause failures; delete `$REMOTE_EXEC_DIR` (default `$TMPDIR/remote-exec-ssh`) to reset.
