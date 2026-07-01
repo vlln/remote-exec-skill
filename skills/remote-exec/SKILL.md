@@ -2,36 +2,37 @@
 name: remote-exec
 description: Use this skill when the user needs to run repeated shell commands on a remote machine over SSH, including connection checks, stdin scripts, and optional tmux-backed persistent state. Do not use it for local-only commands or workflows that require storing passwords.
 license: MIT
-compatibility: Requires OpenSSH locally. Remote tmux is required only when using tmux mode.
+requires:
+  bins:
+    - ssh
+  env:
+    - REMOTE_EXEC_TARGET
 metadata:
-  skit:
-    version: 0.1.0
-    requires:
-      bins:
-        - ssh
-      env:
-        - REMOTE_EXEC_TARGET
-    keywords:
-      - ssh
-      - remote-command
+  author: vlln
+  version: "0.1.0"
 ---
 
 # Remote Exec
 
+## Trigger Keywords
+
+ssh, remote, remote-exec, rex, remote command, execute on remote, run on server, remote shell
+
 ## When To Use
 
-Use for repeated remote shell commands over SSH. Prefer normal `rex` (`<path-to-skills>/remote-exec/scripts/rex`) for independent commands; use tmux mode only when command state must persist between calls.
+Use for repeated remote shell commands over SSH. Prefer direct `rex` commands for independent commands; use tmux mode only when command state must persist between calls.
 
 ## Workflow
 
-1. Use `.rex.env` in the current workspace as the activation file. If it is missing, create it with exports for the `rex` script path and known `REMOTE_EXEC_*` values:
+1. Use `.rex.env` in the current workspace as the activation file. If it is missing, create it with the `rex` command on `PATH` and known `REMOTE_EXEC_*` values:
 
    ```bash
-   export PATH="<path-to-skills>/remote-exec/scripts:${PATH}"
    export REMOTE_EXEC_TARGET="user@host"
    export REMOTE_EXEC_PORT="22"
    export REMOTE_EXEC_PERSIST="10m"
    ```
+
+   Ensure `rex` is available on `PATH` before sourcing.
 
 2. Identify the SSH target from the user request, an already sourced `.rex.env`, or `REMOTE_EXEC_TARGET`. If missing, ask.
 3. Activate the configuration before using `rex`:
@@ -40,14 +41,15 @@ Use for repeated remote shell commands over SSH. Prefer normal `rex` (`<path-to-
    source .rex.env
    ```
 
-   Tell the user they can also source this file in their shell to avoid typing the script path and target repeatedly.
+   Tell the user they can also source this file in their shell to avoid typing the target repeatedly.
+
 4. Check the connection:
 
    ```bash
    rex --check
    ```
 
-5. If auth fails, check/create a key, then ask the user to run `ssh-copy-id "$REMOTE_EXEC_TARGET"` manually:
+5. If auth fails, check/create a key, then ask the user to run `ssh-copy-id "$REMOTE_EXEC_TARGET"` manually.
 
    Do not overwrite an existing private key. If `ssh-copy-id` is unavailable, show the public key and tell the user to add it to remote `~/.ssh/authorized_keys`.
 
@@ -55,14 +57,16 @@ Use for repeated remote shell commands over SSH. Prefer normal `rex` (`<path-to-
 
 ## Usage
 
+Set the target and optional tmux session:
+
 ```bash
 export REMOTE_EXEC_TARGET="user@host"
-export REMOTE_EXEC_TMUX_SESSION="remote-exec"  # when use tmux only
+export REMOTE_EXEC_TMUX_SESSION="remote-exec"  # only when using tmux
 ```
 
 Prefer storing these exports in `.rex.env` and sourcing it before running `rex`.
 
-Pass shell scripts on stdin to avoid local quoting issues.
+Pass shell scripts on stdin to avoid local quoting issues:
 
 ```bash
 rex <<'EOF'
@@ -73,7 +77,7 @@ EOF
 
 Use `--target user@host` to override `REMOTE_EXEC_TARGET`.
 
-## Tmux mode
+## Tmux Mode
 
 Use `--tmux` for tasks that need persistent shell state such as `cd`, exported variables, activated environments, or long-lived interactive context. The default session comes from `REMOTE_EXEC_TMUX_SESSION`; override it with `--tmux-session NAME`.
 
@@ -84,7 +88,7 @@ rex --tmux git status --short
 rex --tmux-session work --tmux pwd
 ```
 
-## Rules
+## Gotchas
 
 - Do not ask for or store remote passwords.
 - Do not overwrite existing private keys.
